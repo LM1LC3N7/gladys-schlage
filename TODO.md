@@ -104,7 +104,11 @@ up to date at the end of every milestone.
 - **Renewal timer** (review 1): the access token is renewed at its expiry
   minus 5 min by a timer of its own, whatever the poll interval (900 s
   included), after the end of a 429/403 pause, never during a stop; a failed
-  renewal tries again every minute (a 429/403 there pauses every path). A
+  renewal tries again after max(1 min, interval) (a 429/403 there pauses
+  every path). Floor (approval round 1): at most one timer renewal per
+  minute, so a token shorter than the margin never loops; the expiry counts
+  from `ExpiresIn` on our clock (the `exp` of the JWT only without it), so a
+  host clock ahead does not matter. A new account resets `codeRequired`. A
   command uses the current token when it is valid 60 s more; below that it is
   refused ("try again in a few seconds") and a renewal starts: no Cognito call
   inside the 3.5 s deadline.

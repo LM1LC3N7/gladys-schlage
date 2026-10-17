@@ -111,6 +111,8 @@ export class SchlageApp {
     this.lastStatus = undefined;
     this.lastTestAt = -Infinity;
     this.lastCodeAt = -Infinity;
+    /** When the renewal timer last renewed the token (at most one per renewRetry). */
+    this.lastRenewAt = -Infinity;
     this.started = false;
   }
 
@@ -126,7 +128,7 @@ export class SchlageApp {
     const { account } = this.config;
     if (this.memory.account !== account) {
       // Another account: its tokens and its stops are not this one's. A 429 pause stays.
-      this.memory = { ...this.memory, account, tokens: null, block: null };
+      this.memory = { ...this.memory, account, tokens: null, block: null, codeRequired: false };
     }
     if (fresh) {
       this.memory.block = null;
@@ -212,6 +214,9 @@ export class SchlageApp {
       return;
     }
     let at = delay === undefined ? renewAt : this.now() + delay;
+    // A floor: a token shorter than the margin, or a host clock ahead, would
+    // otherwise renew at once again and again.
+    at = Math.max(at, this.lastRenewAt + TIMINGS.renewRetry);
     if (this.hardPaused) {
       at = Math.max(at, this.pausedUntil);
     }
@@ -230,6 +235,7 @@ export class SchlageApp {
           return;
         }
         // A success persists the new tokens, which schedules the next renewal.
+        this.lastRenewAt = this.now();
         this.client
           .token({ force: true, signIn: false })
           .catch((err) => this.renewFailed(err, generation));
@@ -258,7 +264,7 @@ export class SchlageApp {
       // The refresh token was refused: the next read signs in (or waits for a code).
       return;
     }
-    this.scheduleRenew(TIMINGS.renewRetry);
+    this.scheduleRenew(Math.max(TIMINGS.renewRetry, this.config.pollInterval * 1000));
   }
 
   /** Forgets the locks and the failures: a new account, or a restart. A 429 pause stays. */

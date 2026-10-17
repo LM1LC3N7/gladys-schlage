@@ -871,6 +871,40 @@ test('no trigger when the previous read is too old', async (t) => {
   assert.equal(gladys.fake.sceneEvents.length, 0);
 });
 
+test('tokens of 5 minutes: at most one renewal a minute, never a loop', async (t) => {
+  const server = fakeSchlage({ lifetime: 5 * MINUTE });
+  const { gladys, advance } = await setup(t, {
+    server,
+    config: { ...CONFIG, poll_interval: 900 },
+  });
+  await advance(10 * MINUTE, SECOND);
+  const count = server.refreshes().length;
+  assert.ok(count >= 5, `renewed (${count})`);
+  assert.ok(count <= 11, `at most one a minute (${count})`);
+  assert.equal(server.srpStarts().length, 1);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+});
+
+test('the expiry counts from ExpiresIn, not from the exp of the JWT', async () => {
+  const { SchlageClient } = await import('../src/client.js');
+  const client = new SchlageClient({ now: () => NOW });
+  const past = `x.${Buffer.from(JSON.stringify({ exp: NOW / 1000 - 3600 })).toString('base64url')}.y`;
+  const tokens = client.cognito.tokensOf({ AccessToken: past, ExpiresIn: 3600 }, 'u', 'r');
+  assert.equal(tokens.expiresAt, NOW + HOUR);
+});
+
+test('a new account never inherits "asks for a code" from the previous one', async (t) => {
+  const store = memoryStore({
+    account: accountKey('previous@example.com'),
+    tokens: null,
+    codeRequired: true,
+  });
+  const { server, gladys } = await setup(t, { store });
+  assert.equal(server.srpStarts().length, 1);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  assert.equal(store.data.codeRequired, false);
+});
+
 test('no e-mail or password: the tokens are dropped', async (t) => {
   const { gladys, store } = await setup(t);
   assert.ok(store.data.tokens);

@@ -129,11 +129,14 @@ export class CognitoClient {
         : previousRefresh;
     const seconds = Number(result.ExpiresIn);
     const exp = Number(decodeClaims(accessToken)?.exp);
+    // ExpiresIn counts from now on our own clock (a host clock ahead or behind
+    // does not matter); the `exp` of the JWT only when Cognito gives no ExpiresIn.
     const expiresAt =
-      Number.isFinite(exp) && exp > 0
-        ? exp * 1000
-        : this.now() +
-          (Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : TIMINGS.tokenLifetime);
+      Number.isFinite(seconds) && seconds > 0
+        ? this.now() + seconds * 1000
+        : Number.isFinite(exp) && exp > 0
+          ? exp * 1000
+          : this.now() + TIMINGS.tokenLifetime;
     return { accessToken, refreshToken, expiresAt, username };
   }
 
