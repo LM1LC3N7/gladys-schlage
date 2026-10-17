@@ -38,7 +38,7 @@ import { SchlageError, errorReason } from './http.js';
 import { T, age, join, word } from './i18n.js';
 import { StatePublisher } from './publisher.js';
 import { isJammed, isStill, isWifiLock, lockedOf, parseLock, parseLocks } from './schlage.js';
-import { fileStore, normalizeMemory } from './store.js';
+import { fileStore, normalizeMemory, safeUsername } from './store.js';
 
 /** Errors after which Schlage did not answer usefully: every lock is unreachable. */
 const OFFLINE = new Set(['network', 'timeout', 'unavailable', 'bad_response', 'size', 'http']);
@@ -138,13 +138,19 @@ export class SchlageApp {
     }
     if (block) {
       this.blocked = block.kind;
+      this.blockDetail = block.detail;
       this.retries = block.retries;
       this.retryAt = block.retryAt ?? 0;
+    }
+    if (!this.config.email || !this.config.password) {
+      // A missing e-mail or password: the tokens of the account go too.
+      this.memory.tokens = null;
     }
     this.client.configure({
       email: this.config.email,
       password: this.config.password,
       tokens: this.memory.tokens,
+      codeRequired: this.memory.codeRequired,
     });
     await this.saveMemory();
     this.publisher.start();
@@ -152,6 +158,7 @@ export class SchlageApp {
       await this.setStatus(false, T.noCredentials);
       return;
     }
+    this.scheduleRenew();
     if (this.blocked) {
       await this.setStatus(false, this.blockedMessage());
       this.scheduleNext();
@@ -164,6 +171,7 @@ export class SchlageApp {
   stop() {
     this.generation += 1;
     this.clearTimer();
+    this.clearRenewTimer();
     for (const handle of this.followUpTimers) {
       this.timers.clearTimeout(handle);
     }
@@ -176,6 +184,81 @@ export class SchlageApp {
       this.timers.clearTimeout(this.timer);
       this.timer = undefined;
     }
+  }
+
+  clearRenewTimer() {
+    if (this.renewTimer) {
+      this.timers.clearTimeout(this.renewTimer);
+      this.renewTimer = undefined;
+    }
+  }
+
+  /** A 429 or 403 pause holds now (every path waits). */
+  get hardPaused() {
+    return (
+      (this.pauseKind === 'rate' || this.pauseKind === 'forbidden') && this.now() < this.pausedUntil
+    );
+  }
+
+  /**
+   * The renewal of the access token, at its expiry minus the margin, whatever
+   * the poll interval: a command never meets an expired token. It waits for
+   * the end of a 429/403 pause and never runs during a stop.
+   */
+  scheduleRenew(delay) {
+    this.clearRenewTimer();
+    const renewAt = this.client.renewAt;
+    if (!this.client.hasCredentials || this.blocked || renewAt === undefined) {
+      return;
+    }
+    let at = delay === undefined ? renewAt : this.now() + delay;
+    if (this.hardPaused) {
+      at = Math.max(at, this.pausedUntil);
+    }
+    const generation = this.generation;
+    this.renewTimer = this.timers.setTimeout(
+      () => {
+        this.renewTimer = undefined;
+        if (generation !== this.generation) {
+          return;
+        }
+        if (this.blocked) {
+          return;
+        }
+        if (this.hardPaused || this.now() < (this.client.renewAt ?? Infinity) - 1_000) {
+          this.scheduleRenew();
+          return;
+        }
+        // A success persists the new tokens, which schedules the next renewal.
+        this.client
+          .token({ force: true, signIn: false })
+          .catch((err) => this.renewFailed(err, generation));
+      },
+      Math.max(0, at - this.now()),
+    );
+  }
+
+  /** A renewal outside a read failed: a pause, or a new try in a minute; never a sign-in. */
+  async renewFailed(err, generation = this.generation) {
+    if (generation !== this.generation) {
+      return;
+    }
+    this.logger.info(`Schlage: token renewal failed (${errorReason(err)})`);
+    if (err.kind === 'rate_limited') {
+      this.pause(err);
+      await this.persist();
+      return;
+    }
+    if (err.kind === 'forbidden') {
+      this.forbid();
+      await this.persist();
+      return;
+    }
+    if (err.kind === 'unauthorized') {
+      // The refresh token was refused: the next read signs in (or waits for a code).
+      return;
+    }
+    this.scheduleRenew(TIMINGS.renewRetry);
   }
 
   /** Forgets the locks and the failures: a new account, or a restart. A 429 pause stays. */
@@ -265,15 +348,21 @@ export class SchlageApp {
   /** The tokens, the pause and the stop, with the account they belong to. */
   async persist() {
     this.memory.account = this.config.account;
-    this.memory.tokens = this.client.tokens ? { ...this.client.tokens } : null;
-    this.memory.pause =
-      (this.pauseKind === 'rate' || this.pauseKind === 'forbidden') && this.pausedUntil > this.now()
-        ? { kind: this.pauseKind, until: this.pausedUntil }
-        : null;
+    const tokens = this.client.tokens;
+    this.memory.tokens = tokens ? { ...tokens, username: safeUsername(tokens.username) } : null;
+    this.memory.codeRequired = this.client.codeRequired;
+    this.memory.pause = this.hardPaused ? { kind: this.pauseKind, until: this.pausedUntil } : null;
     this.memory.block = this.blocked
-      ? { kind: this.blocked, retries: this.retries, retryAt: this.retryAt || undefined }
+      ? {
+          kind: this.blocked,
+          retries: this.retries,
+          retryAt: this.retryAt || undefined,
+          detail: this.blockDetail,
+        }
       : null;
     await this.saveMemory();
+    // New tokens, a new pause or a stop: the renewal follows.
+    this.scheduleRenew();
   }
 
   async flush() {
@@ -297,7 +386,8 @@ export class SchlageApp {
     } else if (this.blocked) {
       delay = Math.max(this.retryAt, this.pausedUntil) - now;
     } else if (now < this.pausedUntil) {
-      delay = this.pausedUntil - now;
+      // Never read again faster than the interval, a pause included.
+      delay = Math.max(this.pausedUntil - now, this.config.pollInterval * 1000);
     } else {
       delay = this.config.pollInterval * 1000;
     }
@@ -383,7 +473,7 @@ export class SchlageApp {
       case 'new_password':
         return T.newPassword;
       case 'unsupported_challenge':
-        return T.unsupportedChallenge(this.blockDetail);
+        return T.unsupportedChallenge(this.blockDetail, wait);
       case 'session_refused':
         return T.sessionRefused(wait);
       default:
@@ -425,9 +515,7 @@ export class SchlageApp {
       wait = this.pause(err);
       message = T.rateLimited(age(wait));
     } else if (err.kind === 'forbidden') {
-      wait = TIMINGS.forbiddenPause;
-      this.pauseKind = 'forbidden';
-      this.pausedUntil = Math.max(this.pausedUntil, this.now() + wait);
+      wait = this.forbid();
       this.offline = true;
       message = T.forbidden(age(wait));
     } else {
@@ -457,6 +545,16 @@ export class SchlageApp {
     return wait;
   }
 
+  /** 403 of the API: a 30-minute pause for every path (kept in /data); a 429 pause stays. */
+  forbid() {
+    const wait = TIMINGS.forbiddenPause;
+    if (!(this.pauseKind === 'rate' && this.pausedUntil > this.now() + wait)) {
+      this.pausedUntil = Math.max(this.pausedUntil, this.now() + wait);
+      this.pauseKind = 'forbidden';
+    }
+    return wait;
+  }
+
   /** The lock list read: every lock through ingest(), the removed ones forgotten. */
   async apply(list) {
     const locks = parseLocks(list);
@@ -478,9 +576,14 @@ export class SchlageApp {
    * One lock as read: the scene events of its change since the previous read
    * (never on the first one), the guard of a command, its states queued.
    */
-  ingest(lock, created = this.createdFeatures()) {
+  ingest(read, created = this.createdFeatures()) {
+    const lock = { ...read, seenAt: this.now() };
     const previous = this.locks.get(lock.id);
-    if (previous && previous.connected && lock.connected) {
+    // A previous read too old (a pause, an outage) tells no "change": no trigger then.
+    const recent =
+      previous?.seenAt !== undefined &&
+      lock.seenAt - previous.seenAt <= 2 * this.config.pollInterval * 1000;
+    if (previous && recent && previous.connected && lock.connected) {
       const name = deviceName(lock, this.config.language);
       if (lockedOf(previous) === true && lockedOf(lock) === false) {
         this.publisher.pushSceneEvent(SCENE_TRIGGERS.UNLOCKED, {
@@ -641,9 +744,10 @@ export class SchlageApp {
     if (!target || !COMMAND_ROLES.includes(target.role)) {
       throw new Error(`${feature?.external_id} cannot be set`);
     }
-    const number = Number(value);
-    if (number !== 0 && number !== 1) {
-      throw new Error(`Unexpected value "${value}" (0 or 1)`);
+    // Only 0, 1, '0' and '1': null, '', ' ', false or [] would read as 0 (unlock).
+    const number = value === 1 || value === '1' ? 1 : value === 0 || value === '0' ? 0 : undefined;
+    if (number === undefined) {
+      throw this.refusal(T.denied.badValue);
     }
     return this.serialized(target.id, () => this.command(target.id, number, receivedAt));
   }
@@ -668,6 +772,7 @@ export class SchlageApp {
   }
 
   async command(id, value, receivedAt) {
+    const generation = this.generation;
     const unlocking = value === 0;
     if (!this.client.hasCredentials) {
       throw this.refusal(T.denied.noConfig);
@@ -678,8 +783,8 @@ export class SchlageApp {
     if (this.blocked) {
       throw this.refusal(T.denied.stopped);
     }
-    if (this.now() < this.pausedUntil && this.pauseKind !== 'backoff') {
-      throw this.refusal(T.denied.paused);
+    if (this.hardPaused) {
+      throw this.refusal(this.pauseKind === 'forbidden' ? T.denied.forbidden : T.denied.paused);
     }
     const known = this.locks.get(id);
     if (!known) {
@@ -688,9 +793,12 @@ export class SchlageApp {
     if (!isWifiLock(known)) {
       throw this.refusal(T.denied.notWifi);
     }
-    if (!this.client.tokenFresh) {
+    if (!this.client.tokenValidFor(TIMINGS.commandTokenValidity)) {
       // A renewal inside the 3.5 s would leave too little time: renewed now, refused.
-      this.client.token({ signIn: false }).catch(() => {});
+      // (The renewal timer makes this rare: the token is renewed 5 min before its end.)
+      this.client
+        .token({ signIn: false, validity: TIMINGS.commandTokenValidity })
+        .catch((err) => this.renewFailed(err, generation));
       throw this.refusal(T.denied.session);
     }
     if (this.remaining(receivedAt) <= TIMINGS.minRequestTimeout) {
@@ -719,12 +827,19 @@ export class SchlageApp {
     if (lockedOf(lock) === expected) {
       return;
     }
+    // The options may have changed during the read: checked again right before sending.
+    if (generation !== this.generation || this.blocked) {
+      throw this.refusal(T.denied.stopped);
+    }
+    if (unlocking && !this.config.allowUnlock) {
+      throw this.refusal(T.denied.unlock);
+    }
     try {
       await this.client.setLockState(id, unlocking ? LOCK_STATE.UNLOCKED : LOCK_STATE.LOCKED, {
-        // Sent 3.5 s after the arrival at the latest; answered by 4.6 s (1.2 s at least).
-        startBy: receivedAt + TIMINGS.commandDeadline,
+        // Sent 3.4 s after the arrival at the latest; answered by 4.6 s after it.
+        startBy: receivedAt + TIMINGS.commandStartBy,
         timeout: () =>
-          Math.max(TIMINGS.commandTimeout, receivedAt + TIMINGS.commandAnswerBy - this.now()),
+          Math.max(TIMINGS.minRequestTimeout, receivedAt + TIMINGS.commandAnswerBy - this.now()),
       });
     } catch (err) {
       if (err.kind === 'late') {
@@ -734,13 +849,17 @@ export class SchlageApp {
         this.pause(err);
         await this.persist();
       }
+      if (err.kind === 'forbidden') {
+        this.forbid();
+        await this.persist();
+      }
       if (MAYBE_SENT.has(err.kind)) {
         // The request may have reached Schlage: the lock may move anyway.
         this.guard(lock, expected);
         this.followUp();
-        if (err.kind === 'timeout' || err.kind === 'network') {
-          throw new Error(word(T.sentNoAnswer, this.config.language), { cause: err });
-        }
+        throw new Error(word(T.maybeSent(errorReason(err)), this.config.language), {
+          cause: err,
+        });
       }
       if (err.kind === 'unauthorized') {
         throw this.refusal(T.denied.session, err);
@@ -761,9 +880,11 @@ export class SchlageApp {
     this.guards.set(lock.id, {
       expected,
       fromJammed: isJammed(lock),
+      sentAt: this.now(),
       until: this.now() + TIMINGS.commandGuard,
     });
-    const shown = { ...lock, moving: true };
+    // `seenAt` of the last read is kept (the triggers compare with it).
+    const shown = { ...this.locks.get(lock.id), ...lock, moving: true };
     this.locks.set(lock.id, shown);
     this.queue(shown);
     this.flush();
@@ -789,8 +910,10 @@ export class SchlageApp {
       return lock;
     }
     const guard = this.guards.get(lock.id);
+    // A read right after the command may answer from before the bolt moved.
+    const settled = this.now() - guard.sentAt >= TIMINGS.guardMinAge;
     const jamEnds = isJammed(lock) && !guard.fromJammed;
-    if (lock.connected && (jamEnds || lockedOf(lock) === guard.expected)) {
+    if (settled && lock.connected && (jamEnds || lockedOf(lock) === guard.expected)) {
       this.guards.delete(lock.id);
       return lock;
     }
@@ -815,6 +938,10 @@ export class SchlageApp {
       }
       if (err.kind === 'rate_limited') {
         this.pause(err);
+        await this.persist();
+      }
+      if (err.kind === 'forbidden') {
+        this.forbid();
         await this.persist();
       }
       this.logger.info(`Schlage lock: no state before the command (${errorReason(err)})`);

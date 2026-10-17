@@ -38,6 +38,34 @@ test('a lock document: state, battery, door, setting, actor; never CAT, MAC or e
   assert.equal(parseLock(SENSE).lockAndLeave, undefined);
 });
 
+test('a name that looks like an e-mail is never "by whom"', () => {
+  const app = parseLock({
+    ...FRONT,
+    users: [{ identityId: 'u1', friendlyName: 'louis@example.com' }],
+    attributes: { lockState: 0, lockStateMetadata: { actionType: 'virtualKey', UUID: 'u1' } },
+  });
+  assert.equal(app.method, 'app');
+  assert.equal(app.by, undefined);
+  const code = parseLock({
+    ...FRONT,
+    attributes: { lockState: 0, lockStateMetadata: { actionType: 'accesscode', name: 'a@b.c' } },
+  });
+  assert.equal(code.by, undefined);
+});
+
+test('a Cognito user name with an @ is never kept in /data', () => {
+  const memory = normalizeMemory(
+    { account: 'abc', tokens: { refreshToken: 'r', username: 'louis@example.com' } },
+    NOW,
+  );
+  assert.equal(memory.tokens.username, undefined);
+  assert.equal(
+    normalizeMemory({ account: 'abc', tokens: { refreshToken: 'r', username: 'sub-1' } }, NOW)
+      .tokens.username,
+    'sub-1',
+  );
+});
+
 test('lock states as pyschlage maps them', () => {
   const at = (lockState) => ({ ...parseLock(FRONT), lockState });
   assert.equal(lockedOf(at(1)), true);
@@ -237,6 +265,7 @@ test('the memory of /data is repaired and its pauses capped', () => {
     tokens: null,
     pause: null,
     block: null,
+    codeRequired: false,
   });
   const memory = normalizeMemory(
     {

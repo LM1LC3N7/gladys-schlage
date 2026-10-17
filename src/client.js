@@ -60,6 +60,11 @@ export class SchlageClient {
     /** A sign-in waiting for its code: { challenge, session, username, at } (memory only). */
     this.pending = null;
     this.renewing = undefined;
+    /**
+     * The account asked for a verification code once (kept in /data): no
+     * automatic sign-in any more, it would send a code; only the button signs in.
+     */
+    this.codeRequired = false;
     /** One new sign-in or forced renewal per cycle at most (beginCycle resets it). */
     this.renewedThisCycle = false;
     this.signedInThisCycle = false;
@@ -67,10 +72,11 @@ export class SchlageClient {
     this.timeout = undefined;
   }
 
-  configure({ email, password, tokens = null }) {
+  configure({ email, password, tokens = null, codeRequired = false }) {
     this.email = email;
     this.password = password;
     this.tokens = tokens?.accessToken || tokens?.refreshToken ? tokens : null;
+    this.codeRequired = codeRequired === true;
     this.pending = null;
     this.beginCycle();
   }
@@ -100,9 +106,19 @@ export class SchlageClient {
 
   /** The access token is valid for a few minutes more: a command needs no renewal. */
   get tokenFresh() {
-    return (
-      Boolean(this.tokens?.accessToken) && this.tokens.expiresAt - TIMINGS.tokenMargin > this.now()
-    );
+    return this.tokenValidFor(TIMINGS.tokenMargin);
+  }
+
+  /** The access token is valid for `ms` more. */
+  tokenValidFor(ms) {
+    return Boolean(this.tokens?.accessToken) && this.tokens.expiresAt - ms > this.now();
+  }
+
+  /** When the access token should be renewed (its expiry minus the margin), or undefined. */
+  get renewAt() {
+    return this.tokens?.accessToken && this.tokens.refreshToken
+      ? this.tokens.expiresAt - TIMINGS.tokenMargin
+      : undefined;
   }
 
   get pendingFresh() {
@@ -122,11 +138,17 @@ export class SchlageClient {
       }
       this.tokens = tokens;
       this.pending = null;
+      // Signed in without a code: the account no longer asks for one.
+      this.codeRequired = false;
       await this.changed();
       return tokens;
     } catch (err) {
       if (err.kind === 'two_factor' && this.email === email) {
         this.pending = err.pending;
+        if (!this.codeRequired) {
+          this.codeRequired = true;
+          await this.changed();
+        }
         if (this.tokens) {
           this.tokens = null;
           await this.changed();
@@ -164,8 +186,8 @@ export class SchlageClient {
    * A valid access token: the current one, else renewed from the refresh
    * token, else (once per cycle) a new sign-in. One renewal at a time.
    */
-  token({ force = false, signIn = true } = {}) {
-    if (!force && this.tokenFresh) {
+  token({ force = false, signIn = true, validity = TIMINGS.tokenMargin } = {}) {
+    if (!force && this.tokenValidFor(validity)) {
       return Promise.resolve(this.tokens.accessToken);
     }
     if (!this.renewing) {
@@ -185,18 +207,31 @@ export class SchlageClient {
           this.tokens = tokens;
           await this.changed();
         }
+        if (!this.tokens?.accessToken) {
+          // The account changed (or was emptied) during the renewal.
+          throw new SchlageError('network', 'the account changed during the renewal');
+        }
         return this.tokens.accessToken;
       } catch (err) {
         if (err.kind !== 'refresh_refused') {
           throw err;
         }
         // Never renewed again with a refused refresh token: the password signs in.
-        this.tokens = null;
-        await this.changed();
+        if (this.tokens === before) {
+          this.tokens = null;
+          await this.changed();
+        }
       }
     }
     if (!signIn) {
       throw new SchlageError('unauthorized', 'no valid token');
+    }
+    if (this.codeRequired) {
+      // A sign-in would send a code nobody waits for: the buttons do it.
+      throw new SchlageError(
+        'two_factor',
+        'a verification code is needed: waiting for the buttons',
+      );
     }
     if (this.signedInThisCycle) {
       throw new SchlageError('session_refused', 'the session was refused after a new sign-in');
@@ -244,8 +279,8 @@ export class SchlageClient {
    * `session_refused` and the caller stops. `retry: false` (commands): a
    * refused token is never retried, the command is refused.
    */
-  async call(method, path, { retry = true, signIn = true, ...options } = {}) {
-    const token = await this.token({ signIn });
+  async call(method, path, { retry = true, signIn = true, validity, ...options } = {}) {
+    const token = await this.token({ signIn, validity });
     try {
       return await this.send(method, path, token, options);
     } catch (err) {
@@ -293,6 +328,7 @@ export class SchlageClient {
     const data = await this.call('GET', `devices/${encodeURIComponent(id)}`, {
       retry: false,
       signIn: false,
+      validity: TIMINGS.commandTokenValidity,
       ...options,
     });
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -309,6 +345,7 @@ export class SchlageClient {
     return this.call('PUT', `devices/${encodeURIComponent(id)}`, {
       retry: false,
       signIn: false,
+      validity: TIMINGS.commandTokenValidity,
       payload: { attributes: { lockState: state } },
       ...options,
     });

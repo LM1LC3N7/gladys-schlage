@@ -55,7 +55,8 @@ function actorOf(metadata, users) {
   let by;
   if (method === 'keypad') {
     // The name the user gave the access code (never the code itself).
-    by = textOf(metadata.name) || undefined;
+    const name = textOf(metadata.name);
+    by = name && !name.includes('@') ? name : undefined;
   } else if (method === 'app' || method === 'apple_home') {
     const uuid = typeof metadata.UUID === 'string' ? metadata.UUID : undefined;
     by = (uuid && users.get(uuid)) || undefined;
@@ -85,7 +86,8 @@ export function parseLock(raw) {
   for (const user of Array.isArray(raw.users) ? raw.users.slice(0, 50) : []) {
     // The friendly name only: the e-mail of a user never leaves this function.
     const name = textOf(user?.friendlyName, 40);
-    if (typeof user?.identityId === 'string' && name) {
+    // A name that looks like an e-mail is dropped too (some accounts have no other name).
+    if (typeof user?.identityId === 'string' && name && !name.includes('@')) {
       users.set(user.identityId, name);
     }
   }

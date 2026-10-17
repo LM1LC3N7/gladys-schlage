@@ -24,6 +24,10 @@ up to date at the end of every milestone.
       3.5 s deadline, guard after the command); stops and pauses persisted and
       capped; badges; test button; en/fr; docs; cover. Tested against a fake
       Cognito and a fake Schlage API only.
+- [x] **Review fixes** (2026-10-17): renewal timer, command values,
+      "may still move" message, code-required accounts, read after a pause,
+      deadlines, re-checks, 403 pauses, texts, models in the docs, /data
+      notes, fsync, e-mail-like names, guard and trigger timing.
 - [ ] **Milestone 2 — real account**: run against a real account and lock,
       compare with the app (see "To check"); turn the answers (anonymized)
       into fixtures.
@@ -97,10 +101,36 @@ up to date at the end of every milestone.
   SECRET_HASH of the refresh: the e-mail first (pycognito does so, and the
   Home Assistant integration works with it), then once the Cognito user name
   when Cognito answers "SecretHash does not match".
-- **Commands need a fresh access token**: no Cognito renewal inside the 3.5 s
-  deadline; when the token is about to expire, the command is refused ("try
-  again in a few seconds") and a renewal starts. With the 60 s reads renewing
-  it 5 min before expiry, this should almost never happen.
+- **Renewal timer** (review 1): the access token is renewed at its expiry
+  minus 5 min by a timer of its own, whatever the poll interval (900 s
+  included), after the end of a 429/403 pause, never during a stop; a failed
+  renewal tries again every minute (a 429/403 there pauses every path). A
+  command uses the current token when it is valid 60 s more; below that it is
+  refused ("try again in a few seconds") and a renewal starts: no Cognito call
+  inside the 3.5 s deadline.
+- **An account that asked for a code is remembered** (review 4,
+  `codeRequired` in /data): when its refresh token expires or is refused, no
+  automatic sign-in (it would send an SMS), a `two_factor` stop until the
+  buttons. Signing in without a code from the button forgets it; another
+  e-mail too.
+- **Command values** (review 2): only 0, 1, '0' and '1'; anything else (null,
+  '', ' ', false, []) is refused, never read as 0 (unlock).
+- **Re-checks before the PUT** (review 6, 7): `allow_unlock`, the stop and the
+  generation are checked again after the read; the PUT starts by 3.4 s after
+  the arrival, its timeout ends 4.6 s after it.
+- **Guard** (review 17): a read less than 4 s after the PUT never ends it.
+- **Triggers** (review 18): none when the previous read is more than two
+  intervals old (a pause, an outage).
+- **"By whom" never an e-mail** (review 16): a friendly name or code name
+  containing "@" is dropped. The Cognito user name of the refresh fallback is
+  not written to /data when it contains "@" (review 13).
+- **403 on a command, its read or a renewal** (review 9): the same 30-minute
+  pause as on the reads; read back from /data capped at 30 min.
+- **No e-mail or no password** (review 14): the tokens are dropped at once.
+- **/data on the host** (review 12, docs): `<base>/external-integrations/<selector>`,
+  readable by root and uid 1000, not in the Gladys backups, deleted with the
+  integration; the refresh token gives control of the locks (said in the
+  docs). The state file is fsynced before its rename (review 15).
 - **The answer of the PUT never lifts the guard** (prudent choice): it may be
   the desired state of the shadow, not the bolt. Only a later read (4, 10, 20,
   46 s) or the 45 s expiry ends it; a new jam ends it too; an unknown or

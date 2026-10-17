@@ -112,9 +112,16 @@ export const TIMINGS = {
    * not sent 3.5 s after it arrived is refused, never sent after the failure.
    */
   commandDeadline: 3_500,
-  /** The command request may last until 4.6 s after the arrival, 1.2 s at least. */
+  /** The lock command itself is sent 3.4 s after the arrival at the latest… */
+  commandStartBy: 3_400,
+  /** …and answered by 4.6 s after the arrival (its timeout: receivedAt + 4.6 s - now). */
   commandAnswerBy: 4_600,
-  commandTimeout: 1_200,
+  /** A command uses the current access token when it is valid for 60 s more. */
+  commandTokenValidity: MINUTE,
+  /** A read this soon after the lock command never ends its guard (the shadow may lag). */
+  guardMinAge: 4_000,
+  /** The renewal timer tries again this long after a failed renewal. */
+  renewRetry: MINUTE,
   /** The shortest timeout worth a request, inside the command deadline. */
   minRequestTimeout: 300,
   /** The read just before a command: 3 s at most. */

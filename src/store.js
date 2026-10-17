@@ -5,11 +5,12 @@
 //     to (a hash of the e-mail): a restart neither signs in again nor asks
 //     for a new verification code;
 //   - the pauses (429, 403) and the stops (refused credentials and their next
-//     try, a verification code awaited), bounded when read back.
+//     try, a verification code awaited), bounded when read back;
+//   - whether the account asks for a verification code (no sign-in by itself).
 // The file is readable by the container user only (0600).
 // -----------------------------------------------------------------------------
 
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { open, readFile, rename } from 'node:fs/promises';
 import { TIMINGS } from './constants.js';
 
 export const STATE_FILE = '/data/schlage-state.json';
@@ -29,7 +30,15 @@ export function fileStore(path = STATE_FILE) {
       const text = JSON.stringify(data);
       const write = chain.then(async () => {
         const temporary = `${path}.tmp`;
-        await writeFile(temporary, text, { mode: 0o600 });
+        // Written and flushed to the disk before the rename: a power cut never
+        // leaves an empty or half-written file in place of the tokens.
+        const file = await open(temporary, 'w', 0o600);
+        try {
+          await file.writeFile(text, 'utf8');
+          await file.sync();
+        } finally {
+          await file.close();
+        }
         await rename(temporary, path);
       });
       chain = write.catch(() => {});
@@ -41,6 +50,12 @@ export function fileStore(path = STATE_FILE) {
 const time = (value) => (Number.isFinite(value) && value > 0 ? value : undefined);
 const text = (value) =>
   typeof value === 'string' && value !== '' && value.length < 8192 ? value : undefined;
+
+/** The Cognito user name (a sub) of the refresh fallback; never an e-mail in /data. */
+export const safeUsername = (value) =>
+  typeof value === 'string' && value !== '' && !value.includes('@')
+    ? value.slice(0, 128)
+    : undefined;
 
 const PAUSE_KINDS = ['rate', 'forbidden'];
 export const BLOCK_KINDS = [
@@ -64,14 +79,17 @@ export function normalizeMemory(raw, now = Date.now()) {
           accessToken: text(t.accessToken),
           refreshToken: text(t.refreshToken),
           expiresAt: time(t.expiresAt) ?? 0,
-          username: typeof t.username === 'string' ? t.username.slice(0, 128) : undefined,
+          username: safeUsername(t.username),
         }
       : null;
   const pause =
     PAUSE_KINDS.includes(raw?.pause?.kind) && time(raw.pause.until)
       ? {
           kind: raw.pause.kind,
-          until: Math.min(raw.pause.until, now + TIMINGS.rateLimitMax),
+          until: Math.min(
+            raw.pause.until,
+            now + (raw.pause.kind === 'forbidden' ? TIMINGS.forbiddenPause : TIMINGS.rateLimitMax),
+          ),
         }
       : null;
   const b = raw?.block;
@@ -83,7 +101,15 @@ export function normalizeMemory(raw, now = Date.now()) {
           retryAt: time(b.retryAt)
             ? Math.min(b.retryAt, now + TIMINGS.refusedRetry.at(-1))
             : undefined,
+          detail:
+            typeof b.detail === 'string' && /^[A-Z_]{1,40}$/.test(b.detail) ? b.detail : undefined,
         }
       : null;
-  return { account, tokens, pause, block };
+  return {
+    account,
+    tokens,
+    pause,
+    block,
+    codeRequired: Boolean(account) && raw?.codeRequired === true,
+  };
 }

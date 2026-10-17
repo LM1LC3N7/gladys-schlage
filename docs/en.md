@@ -1,8 +1,10 @@
 # Schlage
 
 Unofficial integration, not affiliated with Schlage or Allegion. It brings
-the **Schlage Encode** and **Schlage Encode Plus** Wi-Fi locks of a
-**Schlage Home** account into Gladys, through the Schlage cloud (the one the
+the Wi-Fi locks of a **Schlage Home** account into Gladys (**Schlage Encode**,
+**Encode Plus** and **Encode Lever**, and, as pyschlage lists them, the Wi-Fi
+models of the **Arrive**, **Sense Pro** and **Selene** families, Schlage and
+Gainsborough), through the Schlage cloud (the one the
 Schlage Home app uses, accounts of the United States and Canada).
 
 > **Warning: unofficial API. This integration has
@@ -90,9 +92,15 @@ read only: no command is sent to them.
 - The sign-in gives tokens: the access token (about an hour) is renewed with
   the refresh token, without the password, so the integration does not sign
   in again at each read. Both tokens are kept in the `/data` volume of the
-  integration (readable by the container only) so that a restart neither
-  signs in again nor asks for a new code. The e-mail and the password are
-  never written there; changing the e-mail drops the tokens.
+  integration so that a restart neither signs in again nor asks for a new
+  code. On the Gladys host, that volume is the folder
+  `<Gladys base folder>/external-integrations/<selector>`: readable by root
+  and by the uid 1000 (the user of the container), **not in the Gladys
+  backups**, deleted when the integration is uninstalled. **The refresh
+  token gives control of the locks** (unlocking included) for as long as it
+  is valid, without the password: protect that host as you protect your
+  keys. The e-mail and the password are never written there; changing the
+  e-mail, or emptying the e-mail or the password, drops the tokens.
 - Nothing appears in the logs: no password, token, code, e-mail, nor the
   internal keys (CAT/SAT) and MAC addresses the Schlage answers contain.
 - Everything goes over HTTPS to `cognito-idp.us-west-2.amazonaws.com` (the
@@ -110,7 +118,9 @@ the whole account, plus a few reads during the 45 seconds after a command.
   when you save the configuration or click **Test the connection**.
 - **Verification code**: the integration never asks for a new code by itself
   (each sign-in would send one); it waits for the buttons. Once the code is
-  accepted, the session is kept.
+  accepted, the session is kept. An account that asked for a code once is
+  remembered: when its refresh token expires or is refused, the integration
+  does not sign in again by itself, it stops and waits for the buttons.
 - **New password required**: choose it in the Schlage Home app, then enter it
   here.
 - **Session refused right after a new sign-in**: new try after 1 h, 6 h, then

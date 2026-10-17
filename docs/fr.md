@@ -1,8 +1,10 @@
 # Schlage
 
 Intégration non officielle, sans lien avec Schlage ni Allegion. Elle amène
-dans Gladys les serrures Wi-Fi **Schlage Encode** et **Schlage Encode Plus**
-d'un compte **Schlage Home**, par le cloud Schlage (celui qu'utilise
+dans Gladys les serrures Wi-Fi d'un compte **Schlage Home** (**Schlage Encode**,
+**Encode Plus** et **Encode Lever**, et, telles que pyschlage les liste, les
+versions Wi-Fi des familles **Arrive**, **Sense Pro** et **Selene**, Schlage et
+Gainsborough), par le cloud Schlage (celui qu'utilise
 l'application Schlage Home, comptes des États-Unis et du Canada).
 
 > **Attention : API non officielle, cette intégration n'a jamais été testée
@@ -96,10 +98,16 @@ inconnus) sont en lecture seule : aucune commande ne leur est envoyée.
 - La connexion donne des jetons : le jeton d'accès (environ une heure) est
   renouvelé avec le jeton de rafraîchissement, sans le mot de passe ;
   l'intégration ne se reconnecte donc pas à chaque lecture. Les deux jetons
-  sont gardés dans le volume `/data` de l'intégration (lisible par le
-  conteneur seulement) pour qu'un redémarrage ne se reconnecte pas et ne
-  redemande pas de code. L'e-mail et le mot de passe n'y sont jamais écrits ;
-  changer d'e-mail efface les jetons.
+  sont gardés dans le volume `/data` de l'intégration pour qu'un redémarrage
+  ne se reconnecte pas et ne redemande pas de code. Sur l'hôte de Gladys, ce
+  volume est le dossier `<dossier de base de Gladys>/external-integrations/<sélecteur>` :
+  lisible par root et par l'uid 1000 (l'utilisateur du conteneur), **absent
+  des sauvegardes de Gladys**, supprimé à la désinstallation de
+  l'intégration. **Le jeton de rafraîchissement donne le contrôle des
+  serrures** (déverrouillage compris) tant qu'il est valable, sans le mot de
+  passe : protégez cet hôte comme vos clés. L'e-mail et le mot de passe n'y
+  sont jamais écrits ; changer d'e-mail, ou vider l'e-mail ou le mot de passe,
+  efface les jetons.
 - Rien n'apparaît dans les journaux : ni mot de passe, ni jeton, ni code, ni
   e-mail, ni les clés internes (CAT/SAT) et adresses MAC que contiennent les
   réponses de Schlage.
@@ -120,7 +128,10 @@ suivent une commande.
   **Tester la connexion**.
 - **Code de vérification** : l'intégration ne redemande jamais de code
   d'elle-même (chaque connexion en enverrait un) ; elle attend les boutons.
-  Une fois le code accepté, la session est gardée.
+  Une fois le code accepté, la session est gardée. Un compte qui a demandé un
+  code une fois est retenu : quand son jeton de rafraîchissement expire ou est
+  refusé, l'intégration ne se reconnecte pas d'elle-même, elle s'arrête et
+  attend les boutons.
 - **Nouveau mot de passe demandé** : choisissez-le dans l'application Schlage
   Home, puis saisissez-le ici.
 - **Session refusée juste après une nouvelle connexion** : nouvel essai après

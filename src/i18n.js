@@ -86,10 +86,10 @@ export const T = {
     'Schlage asks for a new password: sign in to the Schlage Home app, choose it there, then enter it here.',
     "Schlage demande un nouveau mot de passe : connectez-vous à l'application Schlage Home, choisissez-le là, puis saisissez-le ici.",
   ),
-  unsupportedChallenge: (name) =>
+  unsupportedChallenge: (name, wait) =>
     both(
-      `Schlage asks for a sign-in step this integration does not handle (${name ?? 'unknown'}). The integration waits for a change of the configuration.`,
-      `Schlage demande une étape de connexion que cette intégration ne gère pas (${name ?? 'inconnue'}). L'intégration attend une modification de la configuration.`,
+      `Schlage asks for a sign-in step this integration does not handle (${name ?? 'unknown'}). One new try in ${wait.en} (then 6 h, then every 24 h), or at once when you save the configuration or click "Test the connection".`,
+      `Schlage demande une étape de connexion que cette intégration ne gère pas (${name ?? 'inconnue'}). Un nouvel essai dans ${wait.fr} (puis 6 h, puis toutes les 24 h), ou aussitôt quand vous enregistrez la configuration ou cliquez sur « Tester la connexion ».`,
     ),
   sessionRefused: (wait) =>
     both(
@@ -189,6 +189,14 @@ export const T = {
       'Schlage asked to slow down: command refused during the pause.',
       'Schlage a demandé de ralentir : commande refusée pendant la pause.',
     ),
+    forbidden: both(
+      'Schlage refuses the requests (HTTP 403): command refused during the 30-minute pause.',
+      'Schlage refuse les requêtes (HTTP 403) : commande refusée pendant la pause de 30 minutes.',
+    ),
+    badValue: both(
+      'Unexpected value: 1 locks, 0 unlocks.',
+      'Valeur inattendue : 1 verrouille, 0 déverrouille.',
+    ),
     session: both(
       'The Schlage session is being renewed: try again in a few seconds.',
       'La session Schlage est en cours de renouvellement : réessayez dans quelques secondes.',
@@ -226,10 +234,11 @@ export const T = {
       "La serrure a répondu trop tard : commande refusée avant d'agir (rien n'a été envoyé).",
     ),
   },
-  sentNoAnswer: both(
-    'The command was sent but Schlage did not answer: the lock may still move. Check its state.',
-    "La commande a été envoyée mais Schlage n'a pas répondu : la serrure peut encore bouger. Vérifiez son état.",
-  ),
+  maybeSent: (reason) =>
+    both(
+      `The command may have reached Schlage, but it did not confirm it (${reason}): the lock may still move. Check its state.`,
+      `La commande a pu atteindre Schlage, mais il ne l'a pas confirmée (${reason}) : la serrure peut encore bouger. Vérifiez son état.`,
+    ),
   commandFailed: (reason) =>
     both(`Schlage refused the command (${reason}).`, `Schlage a refusé la commande (${reason}).`),
 };

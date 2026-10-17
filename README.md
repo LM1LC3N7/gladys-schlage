@@ -1,7 +1,8 @@
 # gladys-schlage
 
 [Gladys Assistant](https://gladysassistant.com) external integration for
-**Schlage Encode** and **Encode Plus** Wi-Fi locks, through the Schlage cloud
+**Schlage** Wi-Fi locks (Encode, Encode Plus, Encode Lever, and the Wi-Fi
+models of the Arrive, Sense Pro and Selene families), through the Schlage cloud
 (the unofficial API of the Schlage Home app, accounts of the US and Canada):
 lock state, jam, battery, door, last action and by whom, scene triggers on
 unlocking and on a jam. Locking is always allowed; unlocking is off until the
@@ -33,7 +34,10 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (SchlageApp) ⇄ src/client.js
   `X-Api-Key` of the app. The access token is renewed 5 minutes before it
   expires with `REFRESH_TOKEN_AUTH` (`SECRET_HASH` from the e-mail, then from
   the Cognito user name if Cognito says it does not match); a refused refresh
-  token is dropped and the password signs in once. Tokens are kept in
+  token is dropped and the password signs in once (never on an account that
+  asked for a code once: it then waits for the buttons). A timer renews the
+  token at its expiry minus 5 minutes, whatever the poll interval, after the
+  end of a 429/403 pause and never during a stop. Tokens are kept in
   `/data/schlage-state.json` (0600) with a hash of the e-mail, never the
   e-mail nor the password.
 - **Reading**: `GET devices?archetype=lock` every 60 s (60 to 900), plus 4,
@@ -42,8 +46,9 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (SchlageApp) ⇄ src/client.js
   new password asked, an unknown challenge: stop, new try after 1 h, 6 h, then
   every 24 h. A code asked: stop until the buttons (a sign-in would send a new
   code). 429 (or Cognito `TooManyRequestsException`): a pause of Retry-After
-  between 60 s and 6 h for every path; 403: 30 min; both kept in `/data` and
-  capped when read back. Network errors: 1, 2, 5, 10, 15 min, never under the
+  between 60 s and 6 h for every path, the next read after the pause and the
+  interval; 403 (reads, commands, renewal): 30 min; both kept in `/data` and
+  capped when read back (6 h, 30 min). Network errors: 1, 2, 5, 10, 15 min, never under the
   interval.
 - **Devices**: `ext:<selector>:schlage:<deviceId>`. Features by role: `lock`
   (lock/binary, writable), `state` (lock/state: 0 unlocked, 1 locked, 2 command
@@ -56,13 +61,15 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (SchlageApp) ⇄ src/client.js
   fresh (no renewal inside the deadline); `GET devices/{id}` just before
   acting; refused when that read fails, or the lock is offline, jammed or in
   an unknown state, or when the command is not sent within 3.5 s of its
-  arrival. `PUT devices/{id}` `{ attributes: { lockState } }`, answered by
-  4.6 s after the arrival (1.2 s at least). After a command (or a maybe-sent
+  arrival (the PUT itself by 3.4 s; `allow_unlock` checked again right
+  before). Only 0, 1, '0', '1' are commands. `PUT devices/{id}`
+  `{ attributes: { lockState } }`, answered by 4.6 s after the arrival. A
+  command uses the access token when it is valid 60 s more. After a command (or a maybe-sent
   one), a guard refuses any command and shows the lock in progress until a
-  later read (never the PUT answer) shows the expected state or a new jam,
-  45 s at most.
+  later read (never the PUT answer, nor a read within 4 s of it) shows the
+  expected state or a new jam, 45 s at most.
 - **Scene triggers**: `lock_unlocked` (`lock`, `method`, `by`) on a locked ->
-  unlocked change between two reads, `lock_jammed` (`lock`) on a new jam;
+  unlocked change between two reads at most two intervals apart, `lock_jammed` (`lock`) on a new jam;
   never on the first read.
 
 ## Development

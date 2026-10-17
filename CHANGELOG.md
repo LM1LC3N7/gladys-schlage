@@ -12,8 +12,8 @@ the notes of the version's GitHub Release.
 
 ### Added
 
-- Schlage Encode and Encode Plus Wi-Fi locks of a Schlage Home account (US,
-  Canada), through the Schlage cloud (unofficial API, ported from pyschlage).
+- Schlage Wi-Fi locks of a Schlage Home account (US, Canada: Encode, Encode
+  Plus, Encode Lever, and the Wi-Fi models of Arrive, Sense Pro, Selene), through the Schlage cloud (unofficial API, ported from pyschlage).
 - Sign-in with the e-mail and the password through AWS Cognito SRP (the
   password itself is never sent); the access token is renewed from the
   refresh token, without a new sign-in at each read; the tokens are kept in
@@ -39,6 +39,9 @@ the notes of the version's GitHub Release.
   unreachable when the cloud does not answer or the account is stopped.
 - "Test the connection" button; the status and the Discovery list are sent
   again at each reconnection to Gladys.
+- The access token is renewed by a timer 5 minutes before it expires,
+  whatever the interval; an account that asked for a code never signs in by
+  itself again.
 - Feature names and texts in French or English.
 
 [Unreleased]: https://github.com/LM1LC3N7/gladys-schlage/commits/main

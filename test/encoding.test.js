@@ -12,6 +12,9 @@ import { readFileSync, readdirSync } from 'node:fs';
 const MOJIBAKE = /Ã|Â|â€|Å[’“]/;
 /** C1 control characters: what an upper-case accented letter leaves when read as Latin-1. */
 const C1 = /[\u0080-\u009f]/;
+/** C0 control characters (but tab, CR, LF): a lost escape ("`a" read as BEL by a shell). */
+// eslint-disable-next-line no-control-regex
+const C0 = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 
 const root = new URL('../', import.meta.url);
 const sources = (dir) =>
@@ -45,7 +48,7 @@ for (const file of FILES) {
     const text = bytes.toString('utf8');
     assert.ok(!text.includes('�'), 'invalid UTF-8');
     const lines = text.split('\n');
-    const line = lines.findIndex((l) => MOJIBAKE.test(l) || C1.test(l));
+    const line = lines.findIndex((l) => MOJIBAKE.test(l) || C1.test(l) || C0.test(l));
     assert.equal(line, -1, `mojibake on line ${line + 1}: ${lines[line]}`);
   });
 }

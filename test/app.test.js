@@ -92,7 +92,7 @@ const badgeOf = (gladys, id) =>
   gladys.fake.transports.filter((b) => b.device_external_id === dev(id)).at(-1);
 
 function assertNoSecret(where, text, server) {
-  for (const secret of [PASSWORD, ...SECRETS, ...server.secrets]) {
+  for (const secret of [PASSWORD, EMAIL, ...SECRETS, ...server.secrets]) {
     assert.ok(!text.includes(secret), `${where} holds a secret`);
   }
 }
@@ -512,7 +512,7 @@ test('a timeout of the command keeps the guard: the lock may move anyway', async
   });
   let ack = await set(gladys, IDS.back, 1);
   assert.equal(ack.success, false);
-  assert.match(ack.error, /envoyée mais Schlage n'a pas répondu/);
+  assert.match(ack.error, /a pu atteindre Schlage.*peut encore bouger/);
   ack = await set(gladys, IDS.back, 1);
   assert.match(ack.error, /encore en cours/);
 });
@@ -682,4 +682,200 @@ test('a new password asked by Cognito stops with its message', async (t) => {
   const { gladys, store } = await setup(t, { server });
   assert.match(message(gladys).en, /asks for a new password/);
   assert.equal(store.data.block.kind, 'new_password');
+});
+
+// --- Review fixes ------------------------------------------------------------------
+
+const lockAck = (app, id, value) =>
+  app.setValue(null, { external_id: `${dev(id)}:lock` }, value).then(
+    () => ({ success: true }),
+    (err) => ({ success: false, error: err.message }),
+  );
+
+test('locking 4 min before the token expires, 900 s interval: the timer renewed it', async (t) => {
+  const { gladys, server, advance } = await setup(t, { config: { ...CONFIG, poll_interval: 900 } });
+  await advance(56 * MINUTE, 30 * SECOND);
+  assert.equal(server.refreshes().length, 1, 'renewed at expiry - 5 min, without a read');
+  const ack = await set(gladys, IDS.back, 1);
+  assert.equal(ack.success, true, ack.error);
+  assert.equal(server.puts().length, 1);
+});
+
+test('locking 4 min before the expiry even when the renewal fails: valid 60 s more is enough', async (t) => {
+  const server = fakeSchlage();
+  for (let i = 0; i < 10; i += 1) {
+    server.queue.push({
+      match: (r) => r.flow === 'REFRESH_TOKEN_AUTH',
+      status: 500,
+      body: { __type: 'InternalErrorException' },
+    });
+  }
+  const { gladys, advance } = await setup(t, { server, config: { ...CONFIG, poll_interval: 900 } });
+  await advance(56 * MINUTE, 30 * SECOND);
+  assert.ok(server.refreshes().length >= 1);
+  const ack = await set(gladys, IDS.back, 1);
+  assert.equal(ack.success, true, ack.error);
+  assert.equal(server.srpStarts().length, 1, 'never a sign-in for a renewal');
+});
+
+test('a 429 on the renewal pauses every path, kept in /data', async (t) => {
+  const server = fakeSchlage();
+  server.queue.push({
+    match: (r) => r.flow === 'REFRESH_TOKEN_AUTH',
+    status: 400,
+    body: { __type: 'TooManyRequestsException' },
+  });
+  const { store, advance, gladys } = await setup(t, {
+    server,
+    config: { ...CONFIG, poll_interval: 900 },
+  });
+  await advance(56 * MINUTE, 30 * SECOND);
+  assert.equal(store.data.pause.kind, 'rate');
+  const ack = await set(gladys, IDS.back, 1);
+  assert.match(ack.error, /ralentir/);
+});
+
+test('only 0, 1, "0" and "1" are commands: null, "", " ", false, [] are refused', async (t) => {
+  const { app, server } = await setup(t, { config: { ...CONFIG, allow_unlock: true } });
+  for (const value of [null, '', ' ', false, [], undefined, '01', 2, true]) {
+    const ack = await lockAck(app, IDS.front, value);
+    assert.equal(ack.success, false, JSON.stringify(value));
+    assert.match(ack.error, /Valeur inattendue/);
+  }
+  assert.equal(server.puts().length, 0);
+  assert.equal((await lockAck(app, IDS.front, '0')).success, true);
+  assert.deepEqual(server.puts()[0].body, { attributes: { lockState: 0 } });
+});
+
+test('a 5xx on the command: "may still move", and the guard holds', async (t) => {
+  const { gladys, server } = await setup(t);
+  server.queue.push({ match: (r) => r.method === 'PUT', status: 502, body: {} });
+  let ack = await set(gladys, IDS.back, 1);
+  assert.match(ack.error, /peut encore bouger/);
+  ack = await set(gladys, IDS.back, 1);
+  assert.match(ack.error, /encore en cours/);
+});
+
+test('allow_unlock turned off during the read: nothing is sent', async (t) => {
+  const { gladys, server, app } = await setup(t, { config: { ...CONFIG, allow_unlock: true } });
+  server.queue.push({
+    match: (r) => r.method === 'GET' && r.path === `/v1/devices/${IDS.front}`,
+    before: () => {
+      app.config = { ...app.config, allowUnlock: false };
+    },
+  });
+  const ack = await set(gladys, IDS.front, 0);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /désactivé/);
+  assert.equal(server.puts().length, 0);
+});
+
+test('a 403 on a command pauses 30 minutes for every path', async (t) => {
+  const { gladys, server, store, advance } = await setup(t);
+  server.queue.push({ match: (r) => r.method === 'PUT', status: 403, body: {} });
+  let ack = await set(gladys, IDS.back, 1);
+  assert.equal(ack.success, false);
+  assert.equal(store.data.pause.kind, 'forbidden');
+  ack = await set(gladys, IDS.back, 1);
+  assert.match(ack.error, /HTTP 403/);
+  const count = server.requests.length;
+  await advance(29 * MINUTE, MINUTE);
+  assert.equal(server.requests.length, count);
+});
+
+test('a 403 pause read back from /data is capped at 30 minutes', async (t) => {
+  const store = memoryStore({
+    account: accountKey(EMAIL),
+    pause: { kind: 'forbidden', until: NOW + 5 * HOUR },
+  });
+  const { server, advance } = await setup(t, { store });
+  await advance(31 * MINUTE, MINUTE);
+  assert.ok(server.requests.length > 0);
+});
+
+test('after a 429, the next read waits for the end of the pause and the interval', async (t) => {
+  const { gladys, server, advance } = await setup(t, { config: { ...CONFIG, poll_interval: 300 } });
+  server.queue.push({
+    match: (r) => r.path === '/v1/devices',
+    status: 429,
+    body: {},
+    headers: { 'retry-after': '60' },
+  });
+  await advance(300 * SECOND, 10 * SECOND);
+  const count = server.of('/v1/devices').length;
+  await advance(70 * SECOND, 10 * SECOND);
+  // The pause is over: commands work again, but no read before the interval.
+  const ack = await set(gladys, IDS.back, 1);
+  assert.equal(ack.success, true, ack.error);
+  assert.equal(server.of('/v1/devices').length, count);
+  await advance(240 * SECOND, 10 * SECOND);
+  assert.ok(server.of('/v1/devices').length > count);
+});
+
+test('an account that asked for a code never signs in by itself again', async (t) => {
+  const server = fakeSchlage({ mfa: true });
+  const { gladys, advance, store } = await setup(t, { server });
+  const ack = await gladys.fake.action(ACTIONS.VERIFY_CODE, { code: CODE });
+  assert.match(ack.data.message.en, /Code accepted/);
+  await settle();
+  assert.equal(store.data.codeRequired, true);
+  // The refresh token expires (or is revoked): no sign-in, so no SMS.
+  server.revoke();
+  await advance(2 * HOUR, MINUTE);
+  assert.equal(server.codesSent, 1);
+  assert.equal(server.srpStarts().length, 1);
+  assert.match(message(gladys).en, /asks for a verification code/);
+  assert.equal(store.data.block.kind, 'two_factor');
+  // The button still signs in (and sends a code).
+  const request = await gladys.fake.action(ACTIONS.REQUEST_CODE);
+  assert.match(request.data.message.en, /sent a code/);
+  assert.equal(server.codesSent, 2);
+});
+
+test('the unhandled challenge: its name is kept in /data and the retry is told', async (t) => {
+  const server = fakeSchlage();
+  server.queue.push({
+    match: (r) => r.target === 'RespondToAuthChallenge',
+    status: 200,
+    body: { ChallengeName: 'SELECT_MFA_TYPE', Session: 's', ChallengeParameters: {} },
+  });
+  const { gladys, store } = await setup(t, { server });
+  assert.match(message(gladys).en, /SELECT_MFA_TYPE.*One new try in 60 min/);
+  assert.equal(store.data.block.detail, 'SELECT_MFA_TYPE');
+});
+
+test('a read less than 4 s after the command never ends the guard', async (t) => {
+  const server = fakeSchlage({ effect: 'none' });
+  const { gladys, app, advance } = await setup(t, { server });
+  await set(gladys, IDS.back, 1);
+  server.lock(IDS.back).attributes.lockState = 1;
+  await app.tick();
+  await settle();
+  assert.equal(last(gladys, IDS.back, 'state'), 2, 'too early to trust');
+  await advance(5 * SECOND, SECOND);
+  assert.equal(last(gladys, IDS.back, 'state'), 1);
+});
+
+test('no trigger when the previous read is too old', async (t) => {
+  const { gladys, server, advance } = await setup(t);
+  server.queue.push({
+    match: (r) => r.path === '/v1/devices',
+    status: 429,
+    body: {},
+    headers: { 'retry-after': '1200' },
+  });
+  await advance(MINUTE);
+  server.lock(IDS.front).attributes.lockState = 0;
+  await advance(25 * MINUTE, MINUTE);
+  assert.equal(last(gladys, IDS.front, 'lock'), 0, 'read again');
+  assert.equal(gladys.fake.sceneEvents.length, 0);
+});
+
+test('no e-mail or password: the tokens are dropped', async (t) => {
+  const { gladys, store } = await setup(t);
+  assert.ok(store.data.tokens);
+  await gladys.fake.configUpdated({ email: EMAIL, password: '' });
+  await settle();
+  assert.equal(store.data.tokens, null);
+  assert.match(message(gladys).en, /e-mail and the password/);
 });
