@@ -12,44 +12,33 @@ the notes of the version's GitHub Release.
 
 ### Added
 
-- A working example of scene triggers, scene actions and dashboard widgets
-  (Gladys 5.1.0 or later).
-- `CHANGELOG.md`, rolled by the Release workflow.
-- A GitHub Release for every version, with its changelog section as notes: the
-  Gladys Supervision page links each version to the repository's releases.
-- CI runs the tests on Node 22 and 24, and builds the Docker image.
-- Dependabot keeps the npm dependencies and the GitHub Actions up to date.
-- `SECURITY.md` (how to report a vulnerability) and `CLAUDE.md` (project rules
-  for contributors and coding assistants).
-- Manifest tests: `version` matches `package.json`, `docker_image` is tagged
-  with it, descriptions hold 10 to 100 characters, placeholders are
-  multi-language objects.
-- The latitude and longitude fields show an example value as placeholder.
+- Schlage Encode and Encode Plus Wi-Fi locks of a Schlage Home account (US,
+  Canada), through the Schlage cloud (unofficial API, ported from pyschlage).
+- Sign-in with the e-mail and the password through AWS Cognito SRP (the
+  password itself is never sent); the access token is renewed from the
+  refresh token, without a new sign-in at each read; the tokens are kept in
+  `/data` so a restart does not sign in again.
+- Verification code, when Schlage asks for one (SMS, e-mail or authenticator
+  app): "Send the verification code" and "Verify the code" buttons; never
+  asked again by itself.
+- Lock (lock and unlock), lock state (unlocked, locked, command in progress,
+  jammed), jam alert, battery, door (locks with a door position sensor), last
+  action and by whom (text), one-touch locking setting (read only).
+- Scene triggers "Schlage lock unlocked" (with the method: keypad, app, Apple
+  Home, manual, one-touch, and by whom) and "Schlage lock jammed".
+- Unlocking is off by default (`allow_unlock`); locking is always allowed.
+  Commands run one at a time per lock, after a fresh read of the lock; refused
+  when that read fails, when the lock is offline, jammed or in an unknown
+  state, or when the command cannot be sent within 3.5 s of its arrival. After
+  a command, the lock is shown "command in progress" and any new command
+  refused until a later read shows the expected state (45 s at most).
+- The locks are read every 60 s (60 to 900); refused credentials stop the
+  integration with a new try after 1 h, 6 h, then every 24 h; a 429 pauses
+  every path for 60 s to 6 h, kept across restarts; a 403 pauses 30 minutes.
+- Badges: cloud; unreachable and degraded for a lock Schlage reports offline;
+  unreachable when the cloud does not answer or the account is stopped.
+- "Test the connection" button; the status and the Discovery list are sent
+  again at each reconnection to Gladys.
+- Feature names and texts in French or English.
 
-### Changed
-
-- Node.js 22 or later is required (Node 20 is end-of-life).
-- Integration SDK 0.15.0. The tests now run against the fake Gladys of the
-  SDK, which refuses the payloads Gladys refuses.
-- The refresh interval is one minute minimum, the fastest Gladys polls a
-  device. The plug's power is only sent when it changes, and every 30
-  minutes otherwise.
-
-### Fixed
-
-- Gladys refused the devices of the Discovery tab: the weather station and
-  the plug declared their poll frequency in seconds instead of one of the
-  values Gladys accepts, and were never polled. They now poll every minute,
-  and the readings follow the refresh interval of the configuration.
-
-- The release commit no longer fails `npm run format:check`: the Release
-  workflow updates the manifest `version` and `docker_image` in place instead
-  of re-printing the whole file with `jq`.
-- The integration can write to `/data`: the image creates the directory owned
-  by the `node` user, a new Docker volume was owned by root.
-- A sub-container running the integration's own image follows it to the new
-  tag at each release, as well as in the manifest of the build summary: it kept
-  the previous tag, which may not exist on the registry. Sub-containers on a
-  third-party image (a broker, a database...) keep theirs.
-
-[Unreleased]: https://github.com/GladysAssistant/integration-template-js/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-schlage/commits/main

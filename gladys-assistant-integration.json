@@ -1,101 +1,181 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Schlage",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Schlage Encode Wi-Fi locks through the Schlage cloud: state, battery, door, lock and unlock.",
+    "fr": "Serrures Wi-Fi Schlage Encode par le cloud Schlage : état, batterie, porte, verrouillage."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-schlage:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-schlage/main/cover.png",
+  "categories": ["security"],
+  "transports": ["cloud"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": {
+        "en": "Your Schlage account",
+        "fr": "Votre compte Schlage"
+      },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Brings the Schlage Encode and Encode Plus Wi-Fi locks of your Schlage Home account (US, Canada) into Gladys: locked or not, jam, battery, door (when the lock has a sensor), last action and by whom, and scene triggers on unlocking and on a jam. Read every minute through the Schlage cloud. Enter the e-mail and the password of the Schlage Home app, save, then add the locks from the Discovery tab. If Schlage asks for a verification code, use the two buttons below. Locking from Gladys is always allowed; unlocking stays off until you allow it below. Unofficial API, never tested with a real account. Not affiliated with Schlage or Allegion.",
+        "fr": "Amène dans Gladys les serrures Wi-Fi Schlage Encode et Encode Plus de votre compte Schlage Home (États-Unis, Canada) : verrouillée ou non, bourrage, batterie, porte (si la serrure a un capteur), dernière action et par qui, et des déclencheurs de scène au déverrouillage et sur un bourrage. Lecture chaque minute par le cloud Schlage. Saisissez l'e-mail et le mot de passe de l'application Schlage Home, enregistrez, puis ajoutez les serrures depuis l'onglet Découverte. Si Schlage demande un code de vérification, utilisez les deux boutons ci-dessous. Le verrouillage depuis Gladys est toujours permis ; le déverrouillage reste désactivé tant que vous ne l'autorisez pas ci-dessous. API non officielle, jamais testée avec un vrai compte. Sans lien avec Schlage ni Allegion."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-schlage/blob/main/docs/fr.md",
+          "label": {
+            "en": "Guide (French)",
+            "fr": "Guide (français)"
+          }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-schlage/blob/main/docs/en.md",
+          "label": {
+            "en": "Guide (English)",
+            "fr": "Guide (anglais)"
+          }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
+      "key": "email",
+      "type": "string",
+      "label": {
+        "en": "Schlage e-mail",
+        "fr": "E-mail Schlage"
       },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
-    },
-    {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
+      "placeholder": {
+        "en": "you@example.com",
+        "fr": "vous@exemple.fr"
       },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
+      "required": true
     },
     {
-      "key": "unit",
-      "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
-    },
-    {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
+      "key": "password",
+      "type": "secret",
+      "label": {
+        "en": "Schlage password",
+        "fr": "Mot de passe Schlage"
+      },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "Kept by Gladys in its database, never shown again, used only to sign in to Schlage (AWS Cognito SRP: the password itself is never sent).",
+        "fr": "Gardé par Gladys dans sa base, jamais réaffiché, utilisé seulement pour se connecter à Schlage (AWS Cognito SRP : le mot de passe lui-même n'est jamais envoyé)."
+      },
+      "required": true
+    },
+    {
+      "key": "allow_unlock",
+      "type": "boolean",
+      "label": {
+        "en": "Allow unlocking the locks from Gladys",
+        "fr": "Autoriser le déverrouillage des serrures depuis Gladys"
+      },
+      "description": {
+        "en": "Off by default: Gladys can lock, never unlock. On, a scene, a dashboard or a voice assistant connected to Gladys can open your door.",
+        "fr": "Désactivé par défaut : Gladys peut verrouiller, jamais déverrouiller. Activé, une scène, un tableau de bord ou un assistant vocal relié à Gladys peut ouvrir votre porte."
       },
       "required": false,
-      "default": 300,
+      "default": false
+    },
+    {
+      "key": "poll_interval",
+      "type": "number",
+      "label": {
+        "en": "Refresh interval (s)",
+        "fr": "Intervalle de rafraîchissement (s)"
+      },
+      "description": {
+        "en": "Seconds between two reads of the locks (60 to 900).",
+        "fr": "Secondes entre deux lectures des serrures (60 à 900)."
+      },
+      "required": false,
+      "default": 60,
       "min": 60,
-      "max": 3600
+      "max": 900
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "label": {
+        "en": "Language of the feature names",
+        "fr": "Langue des noms des fonctionnalités"
+      },
+      "description": {
+        "en": "Used for the feature names of the locks added from now on, and for the last action.",
+        "fr": "Sert aux noms des fonctionnalités des serrures ajoutées désormais, et à la dernière action."
+      },
+      "required": false,
+      "default": "fr",
+      "options": [
+        {
+          "value": "fr",
+          "label": {
+            "en": "French",
+            "fr": "Français"
+          }
+        },
+        {
+          "value": "en",
+          "label": {
+            "en": "English",
+            "fr": "Anglais"
+          }
+        }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
-      "timeout_seconds": 30
+      "key": "test_connection",
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
+      },
+      "description": {
+        "en": "Signs in if needed and reads the locks once. Also retries at once after a refusal.",
+        "fr": "Se connecte si besoin et lit une fois les serrures. Réessaie aussi aussitôt après un refus."
+      },
+      "timeout_seconds": 60
     },
     {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
+      "key": "request_code",
+      "label": {
+        "en": "Send the verification code",
+        "fr": "Envoyer le code de vérification"
+      },
+      "description": {
+        "en": "Step 1, only when Schlage asks for a code: signs in with the password; Schlage then sends a code (or asks for the one of your authenticator app).",
+        "fr": "Étape 1, seulement si Schlage demande un code : se connecte avec le mot de passe ; Schlage envoie alors un code (ou demande celui de votre application d'authentification)."
+      },
+      "timeout_seconds": 60
+    },
+    {
+      "key": "verify_code",
+      "label": {
+        "en": "Verify the code",
+        "fr": "Vérifier le code"
+      },
+      "description": {
+        "en": "Step 2, within 3 minutes: type the code received. The session is then kept: no code at the next restarts.",
+        "fr": "Étape 2, dans les 3 minutes : saisissez le code reçu. La session est ensuite gardée : pas de code aux redémarrages."
+      },
+      "timeout_seconds": 60,
       "fields": [
         {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
+          "key": "code",
+          "type": "string",
+          "label": {
+            "en": "Code received",
+            "fr": "Code reçu"
+          },
+          "placeholder": {
+            "en": "123456",
+            "fr": "123456"
+          },
           "required": true
         }
       ]
@@ -103,75 +183,62 @@
   ],
   "scene_triggers": [
     {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
-      "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
+      "key": "lock_unlocked",
+      "label": {
+        "en": "Schlage lock unlocked",
+        "fr": "Serrure Schlage déverrouillée"
       },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
-        }
-      ],
+      "description": {
+        "en": "When a read shows a lock unlocked that was locked at the previous read (every minute: a lock unlocked and locked again in between is missed).",
+        "fr": "Quand une lecture montre déverrouillée une serrure qui était verrouillée à la lecture précédente (chaque minute : une serrure déverrouillée puis reverrouillée entre-temps n'est pas vue)."
+      },
       "variables": [
         {
-          "key": "target",
+          "key": "lock",
           "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
+          "label": {
+            "en": "Lock name",
+            "fr": "Nom de la serrure"
+          }
+        },
+        {
+          "key": "method",
+          "type": "string",
+          "label": {
+            "en": "Method (keypad, app, apple_home, manual, one_touch, other)",
+            "fr": "Méthode (keypad, app, apple_home, manual, one_touch, other)"
+          }
+        },
+        {
+          "key": "by",
+          "type": "string",
+          "label": {
+            "en": "By (code name or app user, when Schlage gives it)",
+            "fr": "Par (nom du code ou utilisateur de l'appli, si Schlage le donne)"
+          }
         }
       ]
-    }
-  ],
-  "scene_actions": [
+    },
     {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
+      "key": "lock_jammed",
+      "label": {
+        "en": "Schlage lock jammed",
+        "fr": "Bourrage d'une serrure Schlage"
       },
-      "timeout_seconds": 15,
-      "fields": [
+      "description": {
+        "en": "When a read shows a lock jammed that was not at the previous read.",
+        "fr": "Quand une lecture montre bloquée une serrure qui ne l'était pas à la lecture précédente."
+      },
+      "variables": [
         {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
-        {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
+          "key": "lock",
+          "type": "string",
+          "label": {
+            "en": "Lock name",
+            "fr": "Nom de la serrure"
+          }
         }
       ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
     }
   ]
 }

@@ -1,67 +1,159 @@
-# Template de démonstration
+# Schlage
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Intégration non officielle, sans lien avec Schlage ni Allegion. Elle amène
+dans Gladys les serrures Wi-Fi **Schlage Encode** et **Schlage Encode Plus**
+d'un compte **Schlage Home**, par le cloud Schlage (celui qu'utilise
+l'application Schlage Home, comptes des États-Unis et du Canada).
+
+> **Attention : API non officielle, cette intégration n'a jamais été testée
+> avec un vrai compte ni une vraie serrure.** Elle a été écrite à partir de la
+> bibliothèque pyschlage (celle de l'intégration Home Assistant) et testée
+> contre un faux cloud Schlage seulement. Schlage peut changer son API à tout
+> moment. Les retours sont les bienvenus.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Pour chaque serrure :
 
-## Configuration
+| Fonctionnalité                   | Détail                                                                                                                 |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Verrou                           | Commande : 1 verrouille, 0 déverrouille (si autorisé). Affiche 1 verrouillée, 0 déverrouillée.                         |
+| État de la serrure               | 0 déverrouillée, 1 verrouillée, 2 commande en cours, 3 bourrage.                                                       |
+| Bourrage                         | 1 quand la serrure signale un bourrage (pêne ou moteur), 0 sinon.                                                      |
+| Batterie                         | En %.                                                                                                                  |
+| Porte                            | Capteur d'ouverture (0 ouverte, 1 fermée), seulement sur les serrures dont le capteur de porte le remonte.             |
+| Dernière action                  | Texte, par exemple « Déverrouillée au clavier (Jean) » : comment, et par qui quand Schlage le donne.                   |
+| Verrouiller en partant (1-Touch) | 1 quand le réglage de verrouillage en une touche est activé sur la serrure (lecture seule), sur les modèles qui l'ont. |
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+« Par qui » est le nom du code d'accès (clavier), ou le nom de l'utilisateur
+Schlage Home (application, Apple Home) ; jamais un e-mail, jamais un code.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+Déclencheurs de scène :
 
-## Actions
+- **Serrure Schlage déverrouillée** : quand une lecture montre déverrouillée
+  une serrure qui était verrouillée à la lecture précédente. Variables :
+  `lock` (son nom), `method` (`keypad` pour le clavier, `app` pour
+  l'application, `apple_home`, `manual` pour le tourniquet, `one_touch`,
+  `other`) et `by` (nom du code ou de l'utilisateur, vide si inconnu). Un
+  déverrouillage depuis Gladys compte aussi (en général `app`).
+- **Bourrage d'une serrure Schlage** : quand une lecture montre bloquée une
+  serrure qui ne l'était pas.
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+Les serrures sont lues chaque minute : une serrure déverrouillée puis
+reverrouillée entre deux lectures n'est pas vue, et un déclencheur peut
+arriver jusqu'à une minute plus tard.
 
-## Scènes
+Le badge de chaque serrure affiche « cloud », « injoignable » (avec un point
+orange) quand Schlage signale la serrure hors ligne (son Wi-Fi), et
+« injoignable » pour toutes quand le cloud Schlage ne répond pas ou que le
+compte est à l'arrêt. Une serrure hors ligne garde ses dernières valeurs.
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+Les autres modèles (Schlage Sense derrière son adaptateur Wi-Fi, types
+inconnus) sont en lecture seule : aucune commande ne leur est envoyée.
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+## Installation
 
-## Tableau de bord
+1. Vos serrures doivent fonctionner dans l'application **Schlage Home**, en
+   Wi-Fi.
+2. Dans Gladys, installez l'intégration Schlage et saisissez l'**e-mail** et
+   le **mot de passe** de votre compte Schlage Home. Enregistrez.
+3. Si Schlage demande un **code de vérification** (l'état le dit) : cliquez
+   sur **Envoyer le code de vérification**, puis saisissez le code reçu dans
+   **Vérifier le code**, dans les 3 minutes. Un code arrivé juste après
+   l'enregistrement peut être saisi tout de suite.
+4. Ajoutez les serrures depuis l'onglet **Découverte**.
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+## Sécurité
 
-## Dépannage
+- **Le verrouillage est toujours possible.**
+- **Le déverrouillage** est désactivé par défaut : activez **Autoriser le
+  déverrouillage des serrures depuis Gladys** pour le permettre. Une scène, un
+  tableau de bord ou un assistant vocal relié à Gladys peut alors ouvrir votre
+  porte.
+- Avant chaque commande, l'intégration **relit la serrure** dans le cloud
+  Schlage. La commande est refusée si cette lecture échoue, si Schlage signale
+  la serrure hors ligne, bloquée (bourrage) ou dans un état inconnu.
+- Les commandes d'une même serrure passent **une à la fois**.
+- Une commande qui ne peut pas être envoyée dans les **3,5 secondes** suivant
+  son arrivée est refusée : Gladys affiche un échec au bout de 5 secondes, et
+  rien ne doit bouger après cet échec.
+- Après une commande, toute nouvelle commande de la même serrure est refusée
+  (« encore en cours ») jusqu'à ce qu'une lecture suivante montre l'état
+  attendu (ou un bourrage), 45 secondes au plus ; la serrure affiche
+  « commande en cours » pendant ce temps. La réponse de la commande elle-même
+  ne compte pas : elle peut montrer l'état demandé avant que le pêne ait bougé.
+- Si Schlage ne répond pas à temps à une commande, Gladys affiche un échec,
+  mais la serrure peut encore bouger : vérifiez son état.
+- Les commandes sont refusées tant que le compte est à l'arrêt (mot de passe
+  refusé, code attendu) et pendant une pause demandée par Schlage.
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+## Mot de passe, jetons et vie privée
+
+- Le mot de passe est **gardé par Gladys dans sa base, jamais réaffiché, et
+  utilisé seulement pour se connecter à Schlage**. La connexion se fait par
+  AWS Cognito SRP (comme l'application Schlage Home) : le mot de passe
+  lui-même ne circule jamais, seulement une preuve.
+- La connexion donne des jetons : le jeton d'accès (environ une heure) est
+  renouvelé avec le jeton de rafraîchissement, sans le mot de passe ;
+  l'intégration ne se reconnecte donc pas à chaque lecture. Les deux jetons
+  sont gardés dans le volume `/data` de l'intégration (lisible par le
+  conteneur seulement) pour qu'un redémarrage ne se reconnecte pas et ne
+  redemande pas de code. L'e-mail et le mot de passe n'y sont jamais écrits ;
+  changer d'e-mail efface les jetons.
+- Rien n'apparaît dans les journaux : ni mot de passe, ni jeton, ni code, ni
+  e-mail, ni les clés internes (CAT/SAT) et adresses MAC que contiennent les
+  réponses de Schlage.
+- Tout passe en HTTPS vers `cognito-idp.us-west-2.amazonaws.com` (la
+  connexion) et `api.allegion.yonomi.cloud` (les serrures).
+
+## Rafraîchissement
+
+Les serrures sont lues toutes les 60 secondes par défaut (60 à 900), une
+requête pour tout le compte, plus quelques lectures dans les 45 secondes qui
+suivent une commande.
+
+## Erreurs
+
+- **Mot de passe refusé** (ou compte non confirmé, réinitialisation demandée) :
+  l'intégration s'arrête ; un nouvel essai après 1 h, 6 h, puis toutes les
+  24 h, ou aussitôt quand vous enregistrez la configuration ou cliquez sur
+  **Tester la connexion**.
+- **Code de vérification** : l'intégration ne redemande jamais de code
+  d'elle-même (chaque connexion en enverrait un) ; elle attend les boutons.
+  Une fois le code accepté, la session est gardée.
+- **Nouveau mot de passe demandé** : choisissez-le dans l'application Schlage
+  Home, puis saisissez-le ici.
+- **Session refusée juste après une nouvelle connexion** : nouvel essai après
+  1 h, 6 h, puis toutes les 24 h.
+- **Schlage demande de ralentir** (429, ou trop de connexions) : une pause d'au
+  moins 1 minute (Retry-After s'il est donné, 6 h au plus), pour tous les
+  chemins (lectures, commandes, boutons), gardée aux redémarrages.
+- **HTTP 403** : une pause de 30 minutes.
+- **Schlage injoignable** : nouvel essai après 1, 2, 5, 10 puis toutes les
+  15 minutes, jamais plus vite que l'intervalle de rafraîchissement.
+
+## Limites
+
+- Comptes des États-Unis et du Canada seulement (le seul cloud Schlage).
+- Jamais testée avec un vrai compte : la forme des réponses vient de
+  pyschlage.
+- Une étape de connexion autre que le code (SMS, e-mail ou application
+  d'authentification) n'est pas gérée : l'état dit laquelle.
+- Les serrures sont interrogées : pas d'événements en direct (le canal push de
+  Schlage n'accepte qu'un client par compte, l'application Schlage Home en
+  étant un).
+- Codes d'accès, verrouillage automatique, bip et alarme ne sont pas gérés.
+
+## Crédits
+
+- [pyschlage](https://github.com/dknowles2/pyschlage) de David Knowles
+  (Apache-2.0) : l'API du cloud, la connexion et le sens des états de la
+  serrure sont portés en JavaScript.
+- [pycognito](https://github.com/pvizeli/pycognito) (Apache-2.0) : le calcul
+  SRP.
+- L'intégration Schlage de [Home Assistant](https://github.com/home-assistant/core)
+  (Apache-2.0).
+- Voir `THIRD_PARTY_NOTICES.md`.
+
+Schlage est une marque d'Allegion ; ce projet est sans lien avec Schlage ni
+Allegion.
